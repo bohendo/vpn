@@ -128,6 +128,7 @@ apt-get autoremove -y
 
 echo "Setting up Certificate Authority"
 git clone https://github.com/bohendo/vpn
+chown -R $user:$user vpn
 cd vpn
 
 if [[ ! -d pki ]]
