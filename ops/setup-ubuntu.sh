@@ -4,7 +4,6 @@ set -e
 hostname="$1"
 user="`whoami`"
 prvkey="$HOME/.ssh/`whoami`"
-ssh_port=23
 
 # Sanity checks
 if [[ -z "$1" ]]
@@ -15,6 +14,18 @@ if [[ ! -f "$prvkey" ]]
 then echo "Couldn't find the ssh private key: $prvkey" && exit
 fi
 
+# Prepare to set or use our user's password
+echo "Set a new sudo password for REMOTE machine.. and again to confirm (no echo)"
+echo -n "> "
+read -s password
+echo
+echo -n "> "
+read -s confirm
+echo
+if [[ "$password" != "$confirm" ]]
+then echo "Passwords did not match, aborting" && exit
+fi
+
 if ssh -q -i $prvkey ubuntu@$hostname exit 2> /dev/null
 then
   echo "Looks like an AWS server, skipping root setup"
@@ -23,18 +34,6 @@ then
 # If we can login as root then setup a sudo user & turn off root login
 elif ssh -q -i $prvkey root@$hostname exit 2> /dev/null
 then
-
-  # Prepare to set or use our user's password
-  echo "Set a new sudo password for REMOTE machine.. and again to confirm (no echo)"
-  echo -n "> "
-  read -s password
-  echo
-  echo -n "> "
-  read -s confirm
-  echo
-  if [[ "$password" != "$confirm" ]]
-  then echo "Passwords did not match, aborting" && exit
-  fi
 
   ssh -i $prvkey root@$hostname "bash -s" <<-EOF
 		set -e
@@ -61,11 +60,6 @@ then
 		PermitRootLogin no
 		' /etc/ssh/sshd_config
 
-    echo "Using port $ssh_port for ssh"
-    sed -i '/^#\?Port / c\
-    Port $ssh_port
-    ' /etc/ssh/sshd_config
-
 		echo "Done with setup as root"
 	EOF
 
@@ -88,8 +82,7 @@ apt-get autoremove -y
 
 # Setup firewall
 ufw --force reset
-ufw allow 22 &&\
-ufw allow 23 &&\
+ufw allow 443 &&\
 ufw --force enable
 
 # Install docker dependencies
@@ -108,9 +101,34 @@ systemctl enable docker
 privateip=\`ifconfig eth1 | grep 'inet ' | awk '{print \$2;exit}' | sed 's/addr://'\`
 docker swarm init "--advertise-addr=\$privateip" 2> /dev/null || true
 
+# Install sslh & openvpn
+DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" install sslh openvpn
+
+# Configure sslh
+# See: http://www.bernaerts-nicolas.fr/linux/75-debian/210-debian-sslh
+
+echo "Configuring sslh..."
+sudo sed -i '/RUN=/ c\
+RUN=yes
+' /etc/default/sslh
+sudo echo 'STARTTIME=2' >> /etc/default/sslh
+sudo sed -i '/DAEMON_OPTS=/ c\
+DAEMON_OPTS="--user sslh --listen 0.0.0.0:443 --ssh 127.0.0.1:22 --openvpn 127.0.0.1:1194 --ssl 127.0.0.1:443 --pidfile /var/run/sslh/sslh.pid --timeout 5"
+' /etc/default/sslh
+
+cat /etc/default/sslh
+
+sudo systemctl enable sslh
+sudo service sslh start
+sudo service sshd restart
+
 # Double-check upgrades
 DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade
 apt-get autoremove -y
+
+echo "Setting up Certificate Authority"
+wget https://github.com/OpenVPN/easy-rsa/releases/download/v3.0.4/EasyRSA-3.0.4.tgz
+tar xvf EasyRSA-3.0.4.tgz
 
 echo
 echo "Done configuring server, rebooting now.."
