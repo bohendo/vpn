@@ -7,7 +7,7 @@ prvkey="$HOME/.ssh/`whoami`"
 
 # Sanity checks
 if [[ -z "$1" ]]
-then echo "Provide the server's hostname or ip address as the first ($1) & only arg ($2)" && exit
+then echo "Provide the server's hostname or ip address as the first ($1) and only arg ($2)" && exit
 fi
 
 if [[ ! -f "$prvkey" ]]
@@ -31,7 +31,7 @@ then
   echo "Looks like an AWS server, skipping root setup"
   password=""
 
-# If we can login as root then setup a sudo user & turn off root login
+# If we can login as root then setup a sudo user and turn off root login
 elif ssh -q -i $prvkey root@$hostname exit 2> /dev/null
 then
 
@@ -71,7 +71,7 @@ ssh -i $prvkey $user@$hostname "sudo -S bash -s" <<EOF
 $password
 set -e
 
-# Remove stale apt cache & lock files
+# Remove stale apt cache and lock files
 sudo rm -rf /var/lib/apt/lists/*
 
 # Upgrade Everything without prompts
@@ -82,7 +82,7 @@ apt-get autoremove -y
 
 # Setup firewall
 ufw --force reset
-ufw allow 443 &&\
+ufw allow 443
 ufw --force enable
 
 # Install docker dependencies
@@ -91,7 +91,7 @@ apt-get install -y apt-transport-https ca-certificates curl jq make software-pro
 # Get the docker team's official gpg key
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
 
-# Add the docker repo & install
+# Add the docker repo and install
 add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu \`lsb_release -cs\` stable"
 apt-get update -y && apt-get install -y docker-ce
 
@@ -101,7 +101,7 @@ systemctl enable docker
 privateip=\`ifconfig eth1 | grep 'inet ' | awk '{print \$2;exit}' | sed 's/addr://'\`
 docker swarm init "--advertise-addr=\$privateip" 2> /dev/null || true
 
-# Install sslh & openvpn
+# Install sslh and openvpn
 DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" install sslh openvpn
 
 # Configure sslh
@@ -113,7 +113,7 @@ RUN=yes
 ' /etc/default/sslh
 sudo echo 'STARTTIME=2' >> /etc/default/sslh
 sudo sed -i '/DAEMON_OPTS=/ c\
-DAEMON_OPTS="--user sslh --listen 0.0.0.0:443 --ssh 127.0.0.1:22 --openvpn 127.0.0.1:1194 --ssl 127.0.0.1:443 --pidfile /var/run/sslh/sslh.pid --timeout 5"
+DAEMON_OPTS="--user sslh --listen 0.0.0.0:443 --ssh 127.0.0.1:22 --openvpn 127.0.0.1:1194 --pidfile /var/run/sslh/sslh.pid --timeout 5"
 ' /etc/default/sslh
 
 cat /etc/default/sslh
@@ -127,8 +127,12 @@ DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -
 apt-get autoremove -y
 
 echo "Setting up Certificate Authority"
-wget https://github.com/OpenVPN/easy-rsa/releases/download/v3.0.4/EasyRSA-3.0.4.tgz
-tar xvf EasyRSA-3.0.4.tgz
+git clone https://github.com/bohendo/vpn
+cd vpn
+
+if [[ ! -d pki ]]
+then ./ops/easyrsa init-pki
+fi
 
 echo
 echo "Done configuring server, rebooting now.."
